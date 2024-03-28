@@ -1,0 +1,146 @@
+  <!DOCTYPE html>
+<html lang="ua">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.2">
+<title>Unix конвертор</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    margin: 20px;
+    text-align: center;
+  }
+
+  h2 {
+    margin-bottom: 10px;
+  }
+
+  label {
+    display: inline-block;
+    width: 100px; /* Змінено ширину міток */
+    text-align: left; /* Вирівнюємо текст міток ліворуч */
+    margin-bottom: 5px;
+  }
+
+  input[type="text"], input[type="number"] {
+    padding: 5px;
+    width: 100px;
+    margin-bottom: 10px;
+    text-align: center;
+  }
+
+  button {
+    padding: 8px 16px;
+    background-color: #007bff;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    margin-right: 10px;
+  }
+
+  button:hover {
+    background-color: #0056b3;
+  }
+
+  #result {
+    margin-top: 20px;
+    text-align: center; /* Вирівнюємо текст результату по центру */
+  }
+</style>
+</head>
+<body>
+
+<h2>Нормальний час > Unix</h2>
+
+<div>
+  <label for="year">Рік:</label>
+  <input type="number" id="year" placeholder="YYYY" min="1900" max="2100" value="2024">
+</div>
+
+<div>
+  <label for="month">Місяць:</label>
+  <input type="number" id="month" placeholder="MM" min="1" max="12" value="03">
+</div>
+
+<div>
+  <label for="day">Число:</label>
+  <input type="number" id="day" placeholder="DD" min="1" max="31" value="27">
+</div>
+
+<div>
+  <label for="time">Час (опціонально):</label>
+  <input type="text" id="time" placeholder="HH:MM:SS">
+</div>
+
+<button onclick="convertToUnix()">Конвертувати в Unix час</button>
+
+<p id="unixResult"></p>
+
+<hr>
+
+<h2>Unix > нормальний час</h2>
+	<p>Увага, Unix час працює в UTC (GMT), тобто для визначення часу на РРО потрібно додавати +2 або +3 години</p>
+<p> </p>
+<div>
+  <label for="unixTime">Unix Time:</label>
+  <input type="number" id="unixTime" placeholder="Unix Time">
+</div>
+
+<button onclick="convertFromUnix()">Конвертувати з Unix часу</button>
+
+<p id="dateResult"></p>
+
+<script>
+function convertToUnix() {
+  const year = document.getElementById('year').value;
+  const month = document.getElementById('month').value;
+  const day = document.getElementById('day').value;
+  let timeValue = document.getElementById('time').value || '00:00:00';
+
+  // Якщо введено час у форматі "HH:MM:SS", зберегти це значення
+  let [hours, minutes, seconds] = timeValue.split(':');
+
+  // Якщо введено час без двокрапок, розділити його на двоцифрові години, хвилини та секунди
+  if (hours.length === 6) {
+    hours = timeValue.slice(0, 2);
+    minutes = timeValue.slice(2, 4);
+    seconds = timeValue.slice(4, 6);
+  }
+
+  // Форматувати дату та час для створення об'єкта Date
+  const dateString = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')} ${hours}:${minutes}:${seconds}`;
+
+  // Створити новий об'єкт дати з отриманих значень
+  const dateObject = new Date(dateString);
+
+  // Повернути час Unix (час у мілісекундах)
+  const unixTime = dateObject.getTime() / 1000;
+  
+  // Відобразити результат
+  document.getElementById('unixResult').innerHTML = `Unix формат: ${unixTime}`;
+}
+
+
+function convertFromUnix() {
+  const unixTime = parseInt(document.getElementById('unixTime').value);
+  if (!unixTime || isNaN(unixTime)) {
+    alert("Invalid Unix Time");
+    return;
+  }
+
+  const dateObject = new Date(unixTime * 1000);
+  const year = dateObject.getFullYear();
+  const month = String(dateObject.getMonth() + 1).padStart(2, '0');
+  const day = String(dateObject.getDate()).padStart(2, '0');
+  const hours = String(dateObject.getHours()).padStart(2, '0');
+  const minutes = String(dateObject.getMinutes()).padStart(2, '0');
+  const seconds = String(dateObject.getSeconds()).padStart(2, '0');
+
+  const dateString = `${day}.${month}.${year} ${hours}:${minutes}:${seconds}`;
+
+  document.getElementById('dateResult').innerHTML = `Час: ${dateString}`;
+}
+</script>
+
+</body>
+</html>
