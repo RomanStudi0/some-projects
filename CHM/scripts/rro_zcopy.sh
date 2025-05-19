@@ -63,7 +63,7 @@ last_z=$(curl --silent --digest -u $login:$password "http://$ip/cgi/param" | gre
 echo "🧾 Останній Z-звіт — $last_z"
 
 # Якщо передано аргументи — одразу друкуємо
-if [ "$#" -gt 0 ]; then
+if [[ -n "${BASH_ARGV[*]}" ]]; then
   is_open=$(tail -n 2 /var/log/chameleon/fiscallistener.log | grep 'isOpenCheck:' | tail -n1 | grep -o '[0-9]$')
   if [ "$is_open" != "0" ]; then
     echo "❌ Чек відкрито — неможливо друкувати звіти"
