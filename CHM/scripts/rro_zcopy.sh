@@ -78,44 +78,46 @@ if [[ "$#" -gt 0 ]]; then
   exit 0
 fi
 
-# --- Якщо режим MG, запропонувати змінити ---
-if [ "$mode" -eq 8 ]; then
-  read -p "Режим MG буде змінено на HTTP для друку. Продовжити? (Y/n): " confirm
-  [[ "$confirm" =~ ^[Nn]$ ]] && echo "Цей РРО працює в MG і не зможе виконати копію" && exit 1
-  set_mode_http
-  sleep 5
-  wait_for_ip || { echo "❌ Після зміни режиму пристрій не відповідає"; exit 1; }
-  mode=$(get_mode)
-  if [ "$mode" -ne 7 ]; then
-    echo "❌ Не вдалося змінити режим на HTTP"
-    exit 1
+if [[ "$#" -gt 0 ]]; then
+  # --- Якщо режим MG, запропонувати змінити ---
+  if [ "$mode" -eq 8 ]; then
+    read -p "Режим MG буде змінено на HTTP для друку. Продовжити? (Y/n): " confirm
+    [[ "$confirm" =~ ^[Nn]$ ]] && echo "Цей РРО працює в MG і не зможе виконати копію" && exit 1
+    set_mode_http
+    sleep 5
+    wait_for_ip || { echo "❌ Після зміни режиму пристрій не відповідає"; exit 1; }
+    mode=$(get_mode)
+    if [ "$mode" -ne 7 ]; then
+      echo "❌ Не вдалося змінити режим на HTTP"
+      exit 1
+    fi
   fi
-fi
 
-# --- Перевірка isOpenCheck ---
-while true; do
-  is_open=$(tail -n 2 /var/log/chameleon/fiscallistener.log | grep 'isOpenCheck:' | tail -n1 | grep -o '[0-9]$')
-  if [ "$is_open" == "0" ]; then
-    break
-  else
-    echo "Чек відкрито, для друку необхідно закрити чек"
-    read -p "Натисніть Enter після закриття чеку..."
-  fi
-done
+  # --- Перевірка isOpenCheck ---
+  while true; do
+    is_open=$(tail -n 2 /var/log/chameleon/fiscallistener.log | grep 'isOpenCheck:' | tail -n1 | grep -o '[0-9]$')
+    if [ "$is_open" == "0" ]; then
+      break
+    else
+      echo "Чек відкрито, для друку необхідно закрити чек"
+      read -p "Натисніть Enter після закриття чеку..."
+    fi
+  done
 
-# --- Введення вручну номерів Z-звітів ---
-read -p "Введіть номери звітів для друку (через пробіл): " -a zlist
-print_zcopies "${zlist[@]}"
+  # --- Введення вручну номерів Z-звітів ---
+  read -p "Введіть номери звітів для друку (через пробіл): " -a zlist
+  print_zcopies "${zlist[@]}"
 
-# --- Якщо змінювався режим — повертаємо назад ---
-if [ "$mode_name" == "MG" ]; then
-  set_mode_mg
-  sleep 5
-  wait_for_ip
-  new_mode=$(get_mode)
-  if [ "$new_mode" -eq 8 ]; then
-    echo "✅ Режим успішно повернено на MG"
-  else
-    echo "⚠️ Не вдалося повернути режим MG"
+  # --- Якщо змінювався режим — повертаємо назад ---
+  if [ "$mode_name" == "MG" ]; then
+    set_mode_mg
+    sleep 5
+    wait_for_ip
+    new_mode=$(get_mode)
+    if [ "$new_mode" -eq 8 ]; then
+      echo "✅ Режим успішно повернено на MG"
+    else
+      echo "⚠️ Не вдалося повернути режим MG"
+    fi
   fi
 fi
