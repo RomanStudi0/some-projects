@@ -1,49 +1,61 @@
 #!/bin/bash
 
+# Призначення: Друк Z-звітів із врахуванням режимів MG/HTTP, стану чеку, параметрів запуску
+
+# --- Функції ---
+
 get_ip() {
     ip=$(systemctl status isc-dhcp-server | grep -oP 'DHCPACK on \K192\.168\.2\.\d+' | head -n1)
-    [ -z "$ip" ] && ip=$(grep -Po '1\\host=\K[\d.]+' /etc/chameleon/fiscallistener.conf)
+    if [ -z "$ip" ]; then
+        ip=$(grep -Po '1\\host=\K[\d.]+' /etc/chameleon/fiscallistener.conf)
+    fi
+
     for i in {1..4}; do
-        ping -c1 -W1 "$ip" &> /dev/null && echo "$ip" && return || sleep 1
+        ping -c1 -W1 "$ip" > /dev/null && break || sleep 1
     done
-    echo "❌ Не вдалося знайти доступний IP пристрою" >&2
-    exit 1
+
+    if [ -z "$ip" ]; then
+        echo "❌ Не вдалося визначити IP пристрою"
+        exit 1
+    fi
 }
 
 get_mode() {
-    mode_json=$(curl --silent --digest -u service:751426 "http://$ip/cgi/tbl/Net")
-    echo "$mode_json" | grep -oP '"NtEnb":\K\d+'
+    curl --silent --digest -u service:751426 "http://$ip/cgi/tbl/Net" | grep -oP '"NtEnb":\K\d+'
 }
 
 set_mode() {
-    curl --silent --digest -u service:751426 -X POST "http://$ip/cgi/tbl/Net" -d '{"NtEnb":'"$1"'}' &> /dev/null
+    local mode=$1
+    curl --silent --digest -u service:751426 -X PUT -d "{\"NtEnb\":$mode}" "http://$ip/cgi/tbl/Net" > /dev/null
 }
 
-wait_for_ip() {
-    for i in {1..10}; do
-        ping -c1 -W1 "$ip" &> /dev/null && return
-        sleep 1
+check_is_open() {
+    local status=$(grep 'isOpenCheck:' /var/log/chameleon/fiscallistener.log | tail -n 1 | awk '{print $NF}')
+    echo "$status"
+}
+
+print_zcopy() {
+    for z in "${zreports[@]}"; do
+        echo "🔄 Друк звіту №$z..."
+        curl --silent --digest -u service:751426 "http://$ip/cgi/zcopy?znum=$z" > /dev/null
     done
-    echo "❌ Не вдалося підключитися до пристрою після зміни режиму" >&2
-    exit 1
 }
 
-# --- Початок виконання ---
-report_nums="$@"
-ip=$(get_ip)
+# --- Основна логіка ---
 
-# Інформація про пристрій
+get_ip
+
+# Отримання індикатора (товару)
+indicator=$(curl --silent --digest -u service:751426 "http://$ip/cgi/scr" | grep -oP '(?<="str":")[^"]+' | awk 'NR==1 {sum=$0; getline; printf "  ┌──────────────────────┐\n  │ %-20s │\n  │ %-20s │\n  └──────────────────────┘\n", sum, $0}')
+echo "$indicator"
+
+# Отримання моделі та імені
 device_info=$(curl --silent --digest -u service:751426 "http://$ip/cgi/state")
 model=$(echo "$device_info" | grep -oP '"model":"\K[^"]+')
 name=$(echo "$device_info" | grep -oP '"name":"\K[^"]+')
-currZ=$(echo "$device_info" | grep -oP '"currZ":\K\d+')
-
 echo " $model - $name"
 
-# Виведення індикатора
-indicator=$(curl --silent --digest -u service:751426 "http://$ip/cgi/scr" | grep -oP '(?<="str":")[^"]+' | awk 'NR==1 {sum=$0; getline; printf "  ┌──────────────────────┐\n  │ %-20s │\n  │ %-20s │\n  └──────────────────────┘\n", sum, $0}')
-
-# Вивід IP та режиму
+# Отримання поточного режиму
 current_mode=$(get_mode)
 mode_name="Невідомо"
 [ "$current_mode" = "7" ] && mode_name="HTTP"
@@ -58,72 +70,77 @@ else
     echo "Не переданих документів - $ndoc"
 fi
 
-# Z-звіт
+# Отримання поточного Z-звіту
+currZ=$(curl --silent --digest -u service:751426 "http://$ip/cgi/znum" | grep -oP '\d+')
+echo "🧾 Останній Z-звіт — $currZ"
 
-# Якщо передано параметри — друкуємо без режимного перемикання
-if [ -n "$report_nums" ]; then
-    status=$(tail -n 2 /var/log/chameleon/fiscallistener.log | grep isOpenCheck: | tail -n1 | grep -o '[0-9]*$')
-    if [[ "$status" != "0" ]]; then
-        echo "⚠️ Чек відкрито"
+# --- Якщо передано параметри ---
+if [ $# -gt 0 ]; then
+    status=$(check_is_open)
+    if [ "$status" != "0" ]; then
+        echo "⚠️ Чек відкрито. Неможливо виконати друк."
         exit 1
     fi
-    for num in $report_nums; do
-        echo "Друк Z-звіту №$num"
-        curl --silent --digest -u service:751426 "http://$ip/cgi/execute?ZCopy=$num" -X GET &> /dev/null
-    done
+
+    zreports=("$@")
+    print_zcopy
     exit 0
 fi
 
-# Якщо режим MG — пропонуємо змінити
-if [[ "$current_mode" = "8" ]]; then
-    read -p "Режим MG буде змінено на HTTP для друку. Продовжити? (Y/n): " confirm
-    confirm=${confirm:-Y}
-    if [[ "$confirm" =~ ^[Nn]$ ]]; then
-        echo "Цей РРО працює в MG і не зможе виконати копію"
+# --- Режим MG -> HTTP, якщо потрібно ---
+if [ "$current_mode" = "8" ]; then
+    read -p "Режим MG буде змінено на HTTP для друку. Продовжити? [Y/n]: " confirm
+    confirm=${confirm,,}  # до нижнього регістру
+    if [[ "$confirm" = "n" ]]; then
+        echo "❌ Цей РРО працює в MG і не зможе виконати копію"
         exit 1
     fi
+
     set_mode 7
+    echo "⏳ Очікування переходу в HTTP режим..."
     sleep 5
-    wait_for_ip
-    current_mode=$(get_mode)
-    if [[ "$current_mode" = "7" ]]; then
+    for i in {1..10}; do
+        ping -c1 -W1 "$ip" > /dev/null && break || sleep 1
+    done
+
+    new_mode=$(get_mode)
+    if [ "$new_mode" = "7" ]; then
         echo "✅ Режим успішно змінено на HTTP"
     else
-        echo "❌ Помилка зміни режиму"
+        echo "❌ Не вдалося змінити режим на HTTP"
         exit 1
     fi
 fi
 
-# Запит на номери для друку
-read -p "Введіть номери звітів для друку (через пробіл): " report_nums
-
-# Перевірка isOpenCheck перед друком
-while :; do
-    status=$(tail -n 2 /var/log/chameleon/fiscallistener.log | grep isOpenCheck: | tail -n1 | grep -o '[0-9]*$')
-    if [[ "$status" != "0" ]]; then
-        echo "Чек відкрито, для друку необхідно закрити чек"
-        read -p "Натисніть Enter для повторної перевірки..."
-    else
+# --- Перевірка відкритого чеку ---
+while true; do
+    status=$(check_is_open)
+    if [ "$status" = "0" ]; then
         break
+    else
+        echo "⚠️ Чек відкрито. Для друку необхідно закрити чек. Натисніть Enter після закриття..."
+        read
     fi
 done
 
-# Друк кожного переданого номера
-for num in $report_nums; do
-    echo "Друк Z-звіту №$num"
-    curl --silent --digest -u service:751426 "http://$ip/cgi/execute?ZCopy=$num" -X GET &> /dev/null
-done
+# --- Ввід звітів для друку ---
+read -p "Введіть номери звітів для друку (через пробіл): " -a zreports
 
-# Якщо початковий режим був MG — повертаємо
-if [[ "$mode_name" = "MG" ]]; then
-    echo "⏪ Повернення режиму назад у MG..."
+print_zcopy
+
+# --- Повернення режиму назад у MG ---
+if [ "$current_mode" = "8" ]; then
     set_mode 8
+    echo "🔁 Повернення у MG режим..."
     sleep 5
-    wait_for_ip
-    final_mode=$(get_mode)
-    if [[ "$final_mode" = "8" ]]; then
-        echo "✅ Режим повернуто назад у MG"
+    for i in {1..10}; do
+        ping -c1 -W1 "$ip" > /dev/null && break || sleep 1
+    done
+
+    back_mode=$(get_mode)
+    if [ "$back_mode" = "8" ]; then
+        echo "✅ Режим успішно повернуто у MG"
     else
-        echo "❌ Не вдалося повернути режим MG"
+        echo "⚠️ Не вдалося повернути режим у MG"
     fi
 fi
