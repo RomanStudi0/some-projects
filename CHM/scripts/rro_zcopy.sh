@@ -62,17 +62,22 @@ fi
 last_z=$(curl --silent --digest -u $login:$password "http://$ip/cgi/param" | grep -o '"currZ":[0-9]*' | grep -o '[0-9]*')
 echo "🧾 Останній Z-звіт — $last_z"
 
+# Функція друку звітів
+print_zcopies() {
+  for znum in "$@"; do
+    curl --silent --digest -u $login:$password "http://$ip/cgi/zcopy?znum=$znum" > /dev/null
+    echo "✅ Надруковано копію Z-звіту №$znum"
+  done
+}
+
 # Якщо передано аргументи — одразу друкуємо
-if [[ -n "${BASH_ARGV[*]}" ]]; then
+if [[ "${#BASH_ARGV[@]}" -gt 0 ]]; then
   is_open=$(tail -n 2 /var/log/chameleon/fiscallistener.log | grep 'isOpenCheck:' | tail -n1 | grep -o '[0-9]$')
   if [ "$is_open" != "0" ]; then
     echo "❌ Чек відкрито — неможливо друкувати звіти"
     exit 1
   fi
-  for znum in "$@"; do
-    curl --silent --digest -u $login:$password "http://$ip/cgi/zcopy?znum=$znum" > /dev/null
-    echo "✅ Надруковано копію Z-звіту №$znum"
-  done
+  print_zcopies "$@"
   exit 0
 fi
 
