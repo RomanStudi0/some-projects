@@ -83,6 +83,39 @@ check_receipt_closed() {
 # Головна частина скрипта
 report_nums="$@"
 ip=$(get_ip)
+# Головна частина скрипта
+report_nums="$@"
+ip=$(get_ip)
+
+# Отримання моделі та назви
+device_info=$(curl --silent --digest -u service:751426 "http://$ip/cgi/state")
+model=$(echo "$device_info" | grep -oP '"model":"\K[^"]+')
+name=$(echo "$device_info" | grep -oP '"name":"\K[^"]+')
+echo " $model - $name"
+
+# Виведення індикатора
+indicator=$(curl --silent --digest -u service:751426 "http://$ip/cgi/scr" | grep -oP '(?<="str":")[^"]+' | awk 'NR==1 {sum=$0; getline; printf "  ┌──────────────────────┐\n  │ %-20s │\n  │ %-20s │\n  └──────────────────────┘\n", sum, $0}')
+echo "$indicator"
+
+# Отримання режиму
+mode_raw=$(curl --silent --digest -u service:751426 "http://$ip/cgi/tbl/Net")
+current_mode=$(echo "$mode_raw" | grep -oP '"NtEnb":\K\d+')
+mode_name="Невідомо"
+[ "$current_mode" = "7" ] && mode_name="HTTP"
+[ "$current_mode" = "8" ] && mode_name="MG"
+echo "IP: $ip, режим роботи - $mode_name"
+
+# Перевірка ndoc
+ndoc=$(curl -s "http://$ip/cgi/status" | grep -o '"ndoc":[0-9]*' | grep -o '[0-9]*')
+if [[ "$ndoc" -eq 0 ]]; then
+    echo "Усі документи передані"
+else
+    echo "Не переданих документів - $ndoc"
+fi
+
+# Вивід поточного Z-звіту
+currZ=$(echo "$device_info" | grep -oP '"currZ":\K\d+')
+echo "🧾 Останній Z-звіт — $currZ"
 
 # Виведення індикатора
 indicator=$(curl --silent --digest -u service:751426 "http://$ip/cgi/scr" | grep -oP '(?<="str":")[^"]+' | awk 'NR==1 {sum=$0; getline; printf "  ┌──────────────────────┐\n  │ %-20s │\n  │ %-20s │\n  └──────────────────────┘\n", sum, $0}')
