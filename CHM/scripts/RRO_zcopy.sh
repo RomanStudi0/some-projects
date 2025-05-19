@@ -15,8 +15,16 @@ get_mode() {
     echo "$mode_json" | grep -oP '"NtEnb":\K\d+'
 }
 
+# Змінена функція встановлення режиму на основі робочого скрипта
 set_mode() {
-    curl --silent --digest -u service:751426 -X POST "http://$ip/cgi/tbl/Net" -d "{\"NtEnb\":$1}" &> /dev/null
+    response=$(curl --digest -u service:751426 "http://$ip/cgi/tbl/Net" \
+        -H 'X-HTTP-Method-Override: PATCH' \
+        -H 'Content-Type: application/json' \
+        -H "Referer: http://$ip/index.html" \
+        --data "{\"NtEnb\":$1}" \
+        --compressed -s)
+    
+    echo "$response" | grep -q "\"NtEnb\":$1" && return 0 || return 1
 }
 
 wait_for_ip() {
@@ -70,7 +78,7 @@ if [ -n "$report_nums" ]; then
     fi
     for num in $report_nums; do
         echo "Друк Z-звіту №$num"
-        curl --silent --digest -u service:751426 "http://$ip/cgi/execute?ZCopy=$num" -X GET &> /dev/null
+        curl --silent --digest -u service:751426 "http://$ip/cgi/proc/printmmcjrn?$num&BegRcpt&EndRcpt"
     done
     exit 0
 fi
@@ -78,24 +86,25 @@ fi
 # Запит на номери для друку
 read -p "Введіть номери звітів для друку (через пробіл): " report_nums
 
-# Перевірка, чи потрібно змінювати режим
+# Перевірка необхідності зміни режиму, якщо режим MG
 if [[ "$mode_name" = "MG" ]]; then
-    read -p "Режим MG буде змінено на HTTP для друку. Продовжити? (Y/n): " confirm
-    confirm=${confirm:-Y}
-    if [[ "$confirm" =~ ^[Nn]$ ]]; then
-        echo "Цей РРО працює в MG і не зможе виконати копію"
-        exit 1
-    fi
-    set_mode 7
-    sleep 5
-    wait_for_ip
-    current_mode=$(get_mode)
-    if [[ "$current_mode" = "7" ]]; then
-        echo "✅ Режим успішно змінено на HTTP"
+    read -p "Змінювати режим? (y/n) " change_mode
+    
+    # За замовчуванням "y", або якщо користувач натиснув Enter
+    if [[ -z "$change_mode" || "$change_mode" =~ ^[Yy]$ ]]; then
+        if set_mode 7; then
+            echo "Режим успішно змінено, починаю друк"
+            mode_changed=true
+        else
+            echo "❌ Помилка зміни режиму"
+            exit 1
+        fi
     else
-        echo "❌ Помилка зміни режиму"
-        exit 1
+        echo "Режим не змінено, починаю друк"
+        mode_changed=false
     fi
+else
+    mode_changed=false
 fi
 
 # Перевірка isOpenCheck перед друком
@@ -109,22 +118,21 @@ while :; do
     fi
 done
 
-# Друк кожного переданого номера
+# Друк кожного переданого номера - змінено на формат з робочого скрипта
 for num in $report_nums; do
     echo "Друк Z-звіту №$num"
-    curl --silent --digest -u service:751426 "http://$ip/cgi/execute?ZCopy=$num" -X GET &> /dev/null
+    curl --digest -u service:751426 "http://$ip/cgi/proc/printmmcjrn?$num&BegRcpt&EndRcpt"
 done
 
-# Якщо початковий режим був MG — повертаємо
-if [[ "$mode_name" = "MG" ]]; then
-    echo "⏪ Повернення режиму назад у MG..."
-    set_mode 8
+# Якщо режим був змінений - повертаємо назад у MG і перезавантажуємо пристрій
+if [[ "$mode_changed" = true ]]; then
     sleep 5
-    wait_for_ip
-    final_mode=$(get_mode)
-    if [[ "$final_mode" = "8" ]]; then
-        echo "✅ Режим повернуто назад у MG"
+    if set_mode 8; then
+        echo "Режим успішно повернуто, перезавантажую..."
     else
-        echo "❌ Не вдалося повернути режим MG"
+        echo "Помилка повернення режиму, перезавантажую..."
     fi
+    
+    # Перезавантаження пристрою, як у робочому скрипті
+    curl -X POST "http://$ip/cgi/pdwl" -H "Content-Type: application/octet-stream" --data "1"
 fi
