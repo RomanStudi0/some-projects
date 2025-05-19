@@ -28,48 +28,39 @@ wait_for_ip() {
     exit 1
 }
 
-print_device_info() {
-    # Інформація про пристрій
-    device_info=$(curl --silent --digest -u service:751426 "http://$ip/cgi/state")
-    model=$(echo "$device_info" | grep -oP '"model":"\K[^"]+')
-    name=$(echo "$device_info" | grep -oP '"name":"\K[^"]+')
-    currZ=$(echo "$device_info" | grep -oP '"currZ":\K\d+')
-
-    echo " $model - $name"
-
-    # Виведення індикатора
-    curl --silent --digest -u service:751426 "http://$ip/cgi/scr" | 
-        grep -oP '(?<="str":")[^"]+' | 
-        awk 'NR==1 {sum=$0; getline; printf "  ┌──────────────────────┐\n  │ %-20s │\n  │ %-20s │\n  └──────────────────────┘\n", sum, $0}'
-
-    # Вивід IP та режиму
-    current_mode=$(get_mode)
-    mode_name="Невідомо"
-    [ "$current_mode" = "7" ] && mode_name="HTTP"
-    [ "$current_mode" = "8" ] && mode_name="MG"
-    echo "IP: $ip, режим роботи - $mode_name"
-
-    # Перевірка непереданих документів
-    ndoc=$(curl -s "http://$ip/cgi/status" | grep -o '"ndoc":[0-9]*' | grep -o '[0-9]*')
-    if [[ "$ndoc" -eq 0 ]]; then
-        echo "Усі документи передані"
-    else
-        echo "Не переданих документів - $ndoc"
-    fi
-
-    # Z-звіт
-    echo "🧾 Останній Z-звіт — $currZ"
-    
-    # Повернення режиму для подальшого використання
-    echo "$mode_name"
-}
-
 # --- Початок виконання ---
 report_nums="$@"
 ip=$(get_ip)
 
-# Вивід інформації про пристрій
-mode_name=$(print_device_info)
+# Інформація про пристрій
+device_info=$(curl --silent --digest -u service:751426 "http://$ip/cgi/state")
+model=$(echo "$device_info" | grep -oP '"model":"\K[^"]+')
+name=$(echo "$device_info" | grep -oP '"name":"\K[^"]+')
+currZ=$(echo "$device_info" | grep -oP '"currZ":\K\d+')
+
+echo " $model - $name"
+
+# Виведення індикатора
+indicator=$(curl --silent --digest -u service:751426 "http://$ip/cgi/scr" | grep -oP '(?<="str":")[^"]+' | awk 'NR==1 {sum=$0; getline; printf "  ┌──────────────────────┐\n  │ %-20s │\n  │ %-20s │\n  └──────────────────────┘\n", sum, $0}')
+echo "$indicator"
+
+# Вивід IP та режиму
+current_mode=$(get_mode)
+mode_name="Невідомо"
+[ "$current_mode" = "7" ] && mode_name="HTTP"
+[ "$current_mode" = "8" ] && mode_name="MG"
+echo "IP: $ip, режим роботи - $mode_name"
+
+# Перевірка непереданих документів
+ndoc=$(curl -s "http://$ip/cgi/status" | grep -o '"ndoc":[0-9]*' | grep -o '[0-9]*')
+if [[ "$ndoc" -eq 0 ]]; then
+    echo "Усі документи передані"
+else
+    echo "Не переданих документів - $ndoc"
+fi
+
+# Z-звіт
+echo "🧾 Останній Z-звіт — $currZ"
 
 # Якщо передано параметри — друкуємо без режимного перемикання
 if [ -n "$report_nums" ]; then
@@ -86,7 +77,7 @@ if [ -n "$report_nums" ]; then
 fi
 
 # Якщо режим MG — пропонуємо змінити
-if [[ "$mode_name" = "MG" ]]; then
+if [[ "$current_mode" = "8" ]]; then
     read -p "Режим MG буде змінено на HTTP для друку. Продовжити? (Y/n): " confirm
     confirm=${confirm:-Y}
     if [[ "$confirm" =~ ^[Nn]$ ]]; then
