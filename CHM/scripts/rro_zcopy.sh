@@ -41,8 +41,9 @@ currZ=$(echo "$device_info" | grep -oP '"currZ":\K\d+')
 echo " $model - $name"
 
 # Виведення індикатора
-indicator=$(curl --silent --digest -u service:751426 "http://$ip/cgi/scr" | grep -oP '(?<="str":")[^"]+' | awk 'NR==1 {sum=$0; getline; printf "  ┌──────────────────────┐\n  │ %-20s │\n  │ %-20s │\n  └──────────────────────┘\n", sum, $0}')
-echo "$indicator"
+curl --silent --digest -u service:751426 "http://$ip/cgi/scr" | 
+    grep -oP '(?<="str":")[^"]+' | 
+    awk 'NR==1 {sum=$0; getline; printf "  ┌──────────────────────┐\n  │ %-20s │\n  │ %-20s │\n  └──────────────────────┘\n", sum, $0}'
 
 # Вивід IP та режиму
 current_mode=$(get_mode)
@@ -64,7 +65,41 @@ echo "🧾 Останній Z-звіт — $currZ"
 
 # Якщо передано параметри — друкуємо без режимного перемикання
 if [ -n "$report_nums" ]; then
+    status=$(tail -n 2 /var/log/chameleon/fiscallistener.log | grep isOpenCheck: | tail -n1 | grep -o '[0-9]*
+
+# Запит на номери для друку
+read -p "Введіть номери звітів для друку (через пробіл): " report_nums
+
+# Перевірка isOpenCheck перед друком
+while :; do
     status=$(tail -n 2 /var/log/chameleon/fiscallistener.log | grep isOpenCheck: | tail -n1 | grep -o '[0-9]*$')
+    if [[ "$status" != "0" ]]; then
+        echo "Чек відкрито, для друку необхідно закрити чек"
+        read -p "Натисніть Enter для повторної перевірки..."
+    else
+        break
+    fi
+done
+
+# Друк кожного переданого номера
+for num in $report_nums; do
+    echo "Друк Z-звіту №$num"
+    curl --silent --digest -u service:751426 "http://$ip/cgi/execute?ZCopy=$num" -X GET &> /dev/null
+done
+
+# Якщо початковий режим був MG — повертаємо
+if [[ "$mode_name" = "MG" ]]; then
+    echo "⏪ Повернення режиму назад у MG..."
+    set_mode 8
+    sleep 5
+    wait_for_ip
+    final_mode=$(get_mode)
+    if [[ "$final_mode" = "8" ]]; then
+        echo "✅ Режим повернуто назад у MG"
+    else
+        echo "❌ Не вдалося повернути режим MG"
+    fi
+fi)
     if [[ "$status" != "0" ]]; then
         echo "⚠️ Чек відкрито"
         exit 1
@@ -74,26 +109,6 @@ if [ -n "$report_nums" ]; then
         curl --silent --digest -u service:751426 "http://$ip/cgi/execute?ZCopy=$num" -X GET &> /dev/null
     done
     exit 0
-fi
-
-# Якщо режим MG — пропонуємо змінити
-if [[ "$current_mode" = "8" ]]; then
-    read -p "Режим MG буде змінено на HTTP для друку. Продовжити? (Y/n): " confirm
-    confirm=${confirm:-Y}
-    if [[ "$confirm" =~ ^[Nn]$ ]]; then
-        echo "Цей РРО працює в MG і не зможе виконати копію"
-        exit 1
-    fi
-    set_mode 7
-    sleep 5
-    wait_for_ip
-    current_mode=$(get_mode)
-    if [[ "$current_mode" = "7" ]]; then
-        echo "✅ Режим успішно змінено на HTTP"
-    else
-        echo "❌ Помилка зміни режиму"
-        exit 1
-    fi
 fi
 
 # Запит на номери для друку
